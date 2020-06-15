@@ -1,0 +1,35 @@
+No section: 'solr'
+No section: 'pg'
+No section: 'pg'
+No section: 'pg'
+No section: 'pg'
+No section: 'pg'
+No section: 'mongo'
+No section: 'mongo'
+Traceback (most recent call last):
+  File "/home/zilong.zhang1/AE_automation/preprocessing/segmentation_helper.py", line 18, in <module>
+    from algorithms.finder.date_finder import run as \
+  File "/home/zilong.zhang1/AE_automation/ClarityNLP/nlp/algorithms/__init__.py", line 5, in <module>
+    from .finder import *
+  File "/home/zilong.zhang1/AE_automation/ClarityNLP/nlp/algorithms/finder/__init__.py", line 4, in <module>
+    from .terms import *
+  File "/home/zilong.zhang1/AE_automation/ClarityNLP/nlp/algorithms/finder/terms.py", line 1, in <module>
+    from data_access import BaseModel
+  File "/home/zilong.zhang1/AE_automation/ClarityNLP/nlp/data_access/__init__.py", line 1, in <module>
+    from .solr_data import query, query_doc_size, get_report_type_mappings, query_doc_by_id
+  File "/home/zilong.zhang1/AE_automation/ClarityNLP/nlp/data_access/solr_data.py", line 6, in <module>
+    import util
+  File "/home/zilong.zhang1/AE_automation/ClarityNLP/nlp/util.py", line 62, in <module>
+    mongo_port = int(read_property('NLP_MONGO_CONTAINER_PORT', ('mongo', 'port')))
+ValueError: invalid literal for int() with base 10: ''
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "AE_selection.py", line 19, in <module>
+    import Sentence_tokenizer_from_Clarity as cla_token
+  File "/home/zilong.zhang1/AE_automation/preprocessing/Sentence_tokenizer_from_Clarity.py", line 72, in <module>
+    import segmentation_helper as seg_helper
+  File "/home/zilong.zhang1/AE_automation/preprocessing/segmentation_helper.py", line 29, in <module>
+    assert -1 != pos
+AssertionError
