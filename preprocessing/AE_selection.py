@@ -90,7 +90,7 @@ for i in range(len(adm_seg_dict_list)):
 print(len(adm_seg_dict.keys()))
 json.dump(adm_seg_dict,open('./adm_seg_dict.json','w'))
 
-AE_icds = ['1000','1001','1002','1003','1004','1005','1006']
+AE_icds = ['99859','9093','99667','99666']
 adm_with_AE = []
 prev_key = 0
 for key,value in adm_icd_dict.items():
@@ -136,7 +136,8 @@ for key,value in Neg_adm_seg_dict.items():
         
 X_train, X_test, y_train, y_test,adm_train,adm_test = train_test_split(total_seg_list,label_list,adm_list,stratify=label_list,test_size=0.2)
 
-data_dir = '../data/pu_valid_data_ratio2/'
+data_dir = './result/ratio2/'
+os.mkdir(data_dir)
 with open(data_dir + 'text_train.pkl', 'wb') as f:
     pickle.dump(X_train, f)
 with open(data_dir + 'text_test.pkl', 'wb') as f:
