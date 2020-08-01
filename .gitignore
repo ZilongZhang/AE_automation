@@ -1,0 +1,7 @@
+**/ClarityNLP
+**/data
+*.json
+*.csv
+**/BERT
+**.pkl
+**/result
