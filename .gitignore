@@ -1,7 +1,10 @@
 **/ClarityNLP
 **/data
+**/exp
 *.json
 *.csv
 **/BERT
+**/statis
 **.pkl
 **/result
+**.joblib

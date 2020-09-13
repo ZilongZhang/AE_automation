@@ -8,6 +8,8 @@ from torch.utils.data import Dataset, DataLoader
 import tokenization
 import time
 import re
+import json
+from transformers import modeling_bert
 import sklearn
 from collections import defaultdict
 import os
@@ -78,11 +80,14 @@ def load_data(ratio=2,clarity=False,stratify = True,shuffle_train = True,corr_la
     return training_generator,validation_generator,dummy_generator
 # Convert splited sentence to documents. 
 
-def load_data_new(shuffle_train = True,corr_label=True):
+def load_data_new(shuffle_train = True,corr_label=True,merged=True):
     src_dir = '../preprocessing/result/ratio2/'
-    text_train = pickle.load(open(src_dir+'text_train.pkl','rb'))
-    
-    text_test = pickle.load(open(src_dir+'text_test.pkl','rb'))
+    if merged:
+        text_train = pickle.load(open(src_dir+'merged_text_train.pkl','rb'))
+        text_test = pickle.load(open(src_dir+'merged_text_test.pkl','rb'))
+    else:
+        text_train = pickle.load(open(src_dir+'text_train.pkl','rb'))
+        text_test = pickle.load(open(src_dir+'text_test.pkl','rb'))
     
     if corr_label and os.path.exists(src_dir+'corrected_label_test.pkl'):
         print('Loaded the corrected labels')
@@ -91,7 +96,8 @@ def load_data_new(shuffle_train = True,corr_label=True):
     else:
         label_test = pickle.load(open(src_dir+'label_test.pkl','rb'))
         label_train = pickle.load(open(src_dir+'label_train.pkl','rb'))
-
+    
+        
     params_sent = {'batch_size': 1,
         'shuffle': shuffle_train,
         'num_workers': 6}
@@ -106,6 +112,23 @@ def load_data_new(shuffle_train = True,corr_label=True):
     dummy_set = DocDataset(text_train[:5], label_train[:5])
     dummy_generator = DataLoader(dummy_set, **params_sent)
     return training_generator,validation_generator,dummy_generator
+  
+def load_data_for_correction():
+    src_dir = '../preprocessing/result/ratio2/'
+    text_train = pickle.load(open(src_dir+'merged_text_train.pkl','rb'))
+    text_test = pickle.load(open(src_dir+'merged_text_test.pkl','rb')) 
+    print(len(text_train))
+    text_train.extend(text_test)
+    
+    label_train = pickle.load(open(src_dir+'label_train.pkl','rb'))    
+    label_test = pickle.load(open(src_dir+'label_test.pkl','rb'))
+    label_train.extend(label_test)
+    params_all = {'batch_size': 1,
+        'shuffle': False,
+        'num_workers': 6}
+    all_set = DocDataset(text_train, label_train)
+    all_generator =DataLoader(all_set, **params_all)
+    return all_generator
     
 def load_review_data(select_index,corr_label=True):
     src_dir = '../preprocessing/result/ratio2/'
@@ -391,14 +414,12 @@ def model_train_and_test(hpara1,model_word,model_sent,save_dir,\
                 while len(sent_mask)<max_doc_len:
                     sent_mask.append(0)
                 sent_mask = torch.tensor(sent_mask).unsqueeze(0).cuda()
-                if hpara1.use_angular:
-                    loss,proba,sent_att_output = model_sent(input_tensors,label,attention_mask=sent_mask)
+                if narrow:
+                    _,proba,sent_att_output = model_sent(input_tensors,label,attention_mask=sent_mask,epoch=cur_epoch)
                 else:
-                    if narrow:
-                        _,proba,sent_att_output = model_sent(input_tensors,label,attention_mask=sent_mask,epoch=cur_epoch)
-                    else:
-                        _,proba,sent_att_output = model_sent(input_tensors,label,attention_mask=sent_mask)
-                    loss = criterion(proba, label)
+                    #import pdb;pdb.set_trace()
+                    _,proba,sent_att_output = model_sent(input_tensors,label,attention_mask=sent_mask)
+                loss = criterion(proba, label)
                 #pdb.set_trace()
                 sum_loss += loss.item() * len(label)
                 _,predicted = torch.max(proba,1)
@@ -506,8 +527,8 @@ def f1_maximize(y_pred,y):
         tn = np.matmul(1-round_y_pred,1-y)
         fp = np.matmul(round_y_pred,1-y)
         fn = np.matmul(1-round_y_pred,y)
-        precision = tp / np.sum([tp,fp])
-        recall = tp / np.sum([tp,fn])
+        precision = tp / (np.sum([tp,fp]) + 0.00001)
+        recall = tp / (np.sum([tp,fn])+ 0.00001)
         f1_score = 2 * precision * recall / (precision + recall)
         f1_list.append(f1_score)       
         if f1_score > optimal_point['max_f1']:
@@ -847,3 +868,44 @@ def show_word_new(vectorizer,model,num,for_pos = True):
         important_word.append(index_2_word_dict[index])
     return important_word
     
+def vocab_match(vocab_file,keywords):
+    vocab_dict = {}
+    lines = open(vocab_file).readlines()
+    for line in lines:
+        vocab_dict[line.strip()]
+    
+def define_model(hpara_dict_path,trained_word_model,trained_sent_model):
+    hpara_dict = json.load(open(hpara_dict_path))
+    hpara1 = hpara()
+    hpara1.__dict__.update(hpara_dict)
+    
+    #load bert config
+    if hpara1.use_SSI_Bert:
+        pretrain_model_dir = './BERT/bert/infection_bert_fix_gast'
+    else:
+        pretrain_model_dir = './BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000'
+    vocab_file = os.path.join(pretrain_model_dir,'vocab.txt')
+    tokenizer = _load_tf_tokenizer(vocab_file = vocab_file)
+    bert_config_file = os.path.join(pretrain_model_dir,'bert_config.json')
+    
+    #word model
+    config = modeling_bert.BertConfig.from_json_file(bert_config_file)
+    config.num_hidden_layers = hpara1.word_layers
+    config.output_attentions = True
+    model_word = modeling_bert.BertModel(config)
+    model_word.load_state_dict(torch.load(trained_word_model))
+    cls_weight = model_word.state_dict()['embeddings.word_embeddings.weight'][101]
+    
+    #sent model
+    config_doc = modeling_bert.BertConfig.from_json_file(bert_config_file)
+    config_doc.num_hidden_layers = hpara1.sent_layers
+    config_doc.output_attentions = True
+    config_doc.num_attention_heads = hpara1.head_num
+    use_position_embedding = hpara1.use_position_embedding
+    model_sent = modeling_bert.BertModel_no_embedding(config_doc,cls_weight,use_position_embedding=use_position_embedding)
+    model_sent.load_state_dict(torch.load(trained_sent_model))
+    
+    # mount to GPGPU
+    model_word = model_word.cuda()
+    model_sent = model_sent.cuda()
+    return hpara1,tokenizer,model_word, model_sent
