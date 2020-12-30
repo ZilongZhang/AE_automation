@@ -2,19 +2,21 @@ import pickle
 import torch
 import pdb
 from torch import optim
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix,roc_auc_score
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import tokenization
 import time
 import re
 import json
+from functools import partial
 from transformers import modeling_bert
-import sklearn
 from collections import defaultdict
+from multiprocessing import Pool
 import os
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from scipy.special import softmax
 
 class DocDataset(Dataset):
@@ -72,7 +74,6 @@ def load_data(ratio=2,clarity=False,stratify = True,shuffle_train = True,corr_la
             'num_workers': 6}
     training_set = DocDataset(text_train, label_train)
     training_generator = DataLoader(training_set, **params_sent)
-
     validation_set = DocDataset(text_test, label_test)
     validation_generator =DataLoader(validation_set, **params_sent_validation)
     dummy_set = DocDataset(text_train[:5], label_train[:5])
@@ -268,51 +269,6 @@ def word_tokenize(text,max_seq_length,tokenizer=None):
         input_ids.append(0)
         input_mask.append(0)
     return input_ids,input_mask
-    
-def data_generate(ratio = 3):
-    from sklearn.model_selection import train_test_split
-    src_dir = './segmented'
-    pos_text = []
-    neg_text = []
-    for root,dirs,files in os.walk(src_dir):
-        for file in files:
-            abs_path = os.path.join(root,file)
-            with open(abs_path, 'rb') as f:
-                    tmp_list = pickle.load(f)
-            if 'pos' in file:
-                pos_text.extend(tmp_list)
-            elif 'neg' in file:
-                neg_text.extend(tmp_list)
-    neg_text = neg_text[:ratio * len(pos_text)]
-    #-----------generate labels for training data------------------
-    pos_label = []
-    for i in range(len(pos_text)):
-        pos_label.append(1)
-    neg_label = []
-    for i in range(len(neg_text)):
-        neg_label.append(0)
-        
-    #------------combine pos and neg text together-----------
-    neg_text.extend(pos_text)
-    whole_text = neg_text
-    neg_label.extend(pos_label)
-    whole_label = neg_label
-      
-    #-------------train_test_split has default shuffle---------------
-    text_train, text_test, label_train, label_test = train_test_split(whole_text, whole_label, test_size=0.2, random_state=42) 
-    data_dir = './pu_data_ratio' + str(ratio) + '/'
-    if os.path.exists(data_dir):
-        print('data already exits')
-    else:
-        os.mkdir(data_dir)
-        with open(data_dir + 'text_train.pkl', 'wb') as f:
-            pickle.dump(text_train, f)
-        with open(data_dir + 'text_test.pkl', 'wb') as f:
-            pickle.dump(text_test, f)
-        with open(data_dir + 'label_train.pkl', 'wb') as f:
-            pickle.dump(label_train, f)
-        with open(data_dir + 'label_test.pkl', 'wb') as f:
-            pickle.dump(label_test, f)
             
 class hpara:
     def __init__(self):
@@ -506,7 +462,7 @@ def model_train_and_test(hpara1,model_word,model_sent,save_dir,\
                 #print(logits)
                 correct += (predicted == label).sum()
             accu = correct.item() / total_num
-            roc_score = sklearn.metrics.roc_auc_score(y_list, y_hat)
+            roc_score = roc_auc_score(y_list, y_hat)
             to_print=test_log.format(cur_epoch,max_epoch,sum_loss,accu,roc_score,time.time() - start)
             to_print = 'Test ' + to_print
             print(to_print)
@@ -537,7 +493,7 @@ def f1_maximize(y_pred,y):
             optimal_point['recall'] = recall
             optimal_point['thres'] = thres
     round_y_pred = y_pred > optimal_point['thres']
-    print(sklearn.metrics.confusion_matrix(y,round_y_pred))
+    print(confusion_matrix(y,round_y_pred))
     return optimal_point,f1_list
     
 def _detailed_att(token,sent_att,word_att): # Only for one layer Bert
@@ -909,3 +865,67 @@ def define_model(hpara_dict_path,trained_word_model,trained_sent_model):
     model_word = model_word.cuda()
     model_sent = model_sent.cuda()
     return hpara1,tokenizer,model_word, model_sent
+
+def columns_count(df,key):
+    print(df[key].isna().sum() / len(df))
+    if len(df[key].unique())<5:
+        df[key].value_counts(normalize=True).plot(kind='bar',figsize=(6, 8));
+    else:
+        df[key].value_counts(normalize=True).plot(kind='barh',figsize=(10, 20));
+abb_list = ['y\.o\.M ', 'P\.M\.', 'M\.D ', 'E\.W\.', 'y\.o\.f ', 'e\.R ', 'h\.o', 'b\.s\.', 'M\.C\.', 'r\.n ', 'u\.o ', 'H\.C\.', 'N\.P\.O\.', 'o\.u\.', 'y\.o\.f\.', 'p\.m\.', 't\.E ', 'e\.A ', 'e\.g\.', 'n\.K ', 'U\.S\.', 'M\.F\.', 'y\.o\.m\.', 'q\.s\.', 'Y\.O ', 'a\.k\.a\.', 's\.o\.b\.', 'O\.U\.', 'l\.s ', 't\.d\.', 'o\.r ', 'd\.A\.', 'O\.D\.', 'b\.m\.', 'R\.A\.', 't\.E', 'N\.Y\.', 'p\.r\.n\.', 'b\.i\.d\.', 'p\.m', 'm\.a\.e\.', 'q\.d\.', 'o\.k ', 's\.A ', 'B\.L\.', 'h\.o ', 'A\.D\.', 'F\.u ', 'v\.o\.', 'B\.I\.', 'S\.O\.B\.', 'e\.g ', 'l\.e', 'M\.D\.', 'i\.e\.', 'T\.V\.', 's\.c ', 'd\.r ', 'r\.n\.', 'r\.o ', 'N\.B\.', 'H\.O ', 'A\.C\.E ', 'N\.O\.S ', 'h\.d\.', 'P\.T\.', 'B\.S ', 'I\.E ', 'O\.S\.', 'e\.p\.', 'm\.r\.g\.', 'p\.o\.q\.d\.', 'm\.d\.', 'R\.N ', 't\.s ', 'd\.r\.', 'h\.l\.', 's\.T ', 'E\.R\.', 't\.E\.', 'I\.S\.', 'B\.W\.', 'd\.L ', 'u\.o\.', 'r\.A ', 'n\.p\.o\.', 'd\.t ', 'B\.A\.', 'S\.K ', 'a\.m\.', 'i\.e', 'H\.R ', 'c\.w ', 'q\.a\.m\.', 'D\.T ', 'i\.v\.', 'B\.P\.', 'q\.p\.m\.', 's\.R ', 'p\.r\.', 'P\.O\.', 'd\.o\.', 'C\.T\.', 'R\.K', 'T\.F\.', 'e\.a ', 'p\.s\.', 'Y\.O\.', 'E\.D ', 'M\.P\.H\.', 'P\.o\.', 'I\.R ', 'V\.A\.C\.', 'N\.E\.', 'f\.u ', 'e\.d\.', 't\.a ', 'd\.c ', 'y\.o M ', 'R\.T\.', 'I\.D\.', 's\.p ', 's\.l ', 'q\.s ', 'g\.i\.', 'q\.h\.s\.', 'p\.o\.q\.i\.d\.', 'p\.o\.b\.i\.d\.', 'M\.S\.', 'd\.A ', 'H\.o ', 'S\.T ', 'o\.t\.', 'a\.c\.', 'n\.p\.', 't\.A ', 'p\.e\.', 't\.l\.', 'o\.r\.', 'w\.o ', 'P\.R\.N\.', 'I\.V ', 's\.P\.', 'I\.J\.', 'I\.R\.', 'P\.S\.', 'n\.t ', 'c\.p\.', 't\.o ', 'U\.o\.', 'B\.I\.D', 'U\.O\.', 'p\.m ', 'N\.P\.', 'F\.R\.', 'n\.s\.', 'b\.i\.d', 'I\.S ', 'N\.T ', 'p\.o\.', 's\.A\.', 'i\.e ', 'N\.C\.', 'e\.d ', 'R\.R\.', 'y\.o\.', 'I\.E\.', 's\.D ', 'P\.A\.', 'b\.i\.d ', 'O\.R ', 'q\.h\.s\.p\.r\.n\.', 'P\.C\.', 's\.p\.', 's\.c\.b\.i\.d\.', 'S\.O\.', 'y\.A ', 'q\.i\.d\.p\.r\.n\.', 't\.A\.', 'O\.T\.', 's\.s\.', 'c\.i\.', 'C\.O\.', 'p\.o\.q\.h\.s\.p\.r\.n\.', 'B\.M\.', 'u\.s\.', 'T\.M\.', 'p\.o ', 'R\.D\.', 'N\.H\.', 'y\.o\.m ', 'n\.A ', 'i\.v ', 'A\.G\.', 't\.D ', 'p\.g\.', 'e\.t\.', 'B\.I\.D ', 'H\.R\.', 'd\.s ', 't\.r ', 'O\.K\.', 'D\.R\.', 'y\.o\.F ', 'r\.D ', 'N\.O\.', 'i\.s\.', 'n\.c\.', 'A\.m ', 'o\.k\.', 's\.r ', 'P\.S ', 'I\.P\.', 'E\.D\.', 'i\.d\.', 'G\.I\.', 'h\.s\.', 'O\.R\.', 'N\.P\.N\.', 'H\.D\.', 'P\.O\.D\.', 'n\.c', 'P\.M ', 'P\.O ', 's\.K ', 'S\.R ', 'h\.o\.', 'R\.I\.', 'p\.o\.q\.', 'e\.A\.', 'C\.I\.', 'r\.t\.', 'I\.D ', 'R\.O ', 'D\.M\.', 'G\.U\.', 'c\.o ', 'q\.o\.d\.', 'I\.O ', 'R\.O\.', 'E\.G\.', 'c\.t\.', 'c\.i ', 'h\.D\.', 'a\.m ', 'H\.L\.', 'e\.w\.', 'E\.C\.', 'T\.O\.', 's\.s ', 'S\.C ', 'U\.O ', 'p\.o\.t\.i\.d\.', 'e\.r ', 'g\.u\.', 'i\.u\.', 'R\.N\.s ', 'S\.W\.', 'd\.o', 'R\.N\.', 'D\.R ', 'C\.I ', 'M\.I\.', 'B\.P ', 'a\.m', 'o\.s\.', 'E\.L ', 'e\.L ', 'n\.c ', 'Q\.S\.', 'r\.o\.s\.', 'e\.d', 'H\.O\.', 'A\.M ', 'p\.t\.', 'd\.o ', 'y\.o ', 'E\.T ', 'I\.V\.', 'h\.p\.r\.n\.', 't\.K ', 'P\.E\.', 'U\.S ', 'T\.D\.', 'i\.v', 's\.L ', 'c\.o\.', 'S\.C\.', 'C\.O ', 'T\.O ', 'o\.C ', 'l\.A ', 'S\.L\.', 'p\.a\.', 'i\.v\.q\.', 't\.A', 'F\.B\.', 't\.i\.d\.', 'D\.L ', 'D\.I\.C\.', 'c\.l\.', 'C\.L\.', 'A\.M', 'o\.d\.', 'R\.O\.S\.', 'p\.o', 'S\.P ', 'J\.P\.', 'B\.S\.', 'd\.R ', 's\.o\.', 'p\.o\.q\.a\.m\.', 'C\.A\.R\.E ', 'i\.r\.', 'q\.i\.d\.', 'A\.m\.', 'y\.o F ', 'B\.O\.', 'B\.I\.D\.', 'D\.L\.', 's\.c\.', 'S\.O ', 'S\.S\.', 'v\.s\.', 'p\.o\.q\.h\.s\.', 'A\.M\.']
+
+nopoint_abb_list = ['yoM ', 'PM', 'MD ', 'EW', 'yof ', 'eR ', 'ho', 'bs', 'MC', 'rn ', 'uo ', 'HC', 'NPO', 'ou', 'yof', 'pm', 'tE ', 'eA ', 'eg', 'nK ', 'US', 'MF', 'yom', 'qs', 'YO ', 'aka', 'sob', 'OU', 'ls ', 'td', 'or ', 'dA', 'OD', 'bm', 'RA', 'tE', 'NY', 'prn', 'bid', 'pm', 'mae', 'qd', 'ok ', 'sA ', 'BL', 'ho ', 'AD', 'Fu ', 'vo', 'BI', 'SOB', 'eg ', 'le', 'MD', 'ie', 'TV', 'sc ', 'dr ', 'rn', 'ro ', 'NB', 'HO ', 'ACE ', 'NOS ', 'hd', 'PT', 'BS ', 'IE ', 'OS', 'ep', 'mrg', 'poqd', 'md', 'RN ', 'ts ', 'dr', 'hl', 'sT ', 'ER', 'tE', 'IS', 'BW', 'dL ', 'uo', 'rA ', 'npo', 'dt ', 'BA', 'SK ', 'am', 'ie', 'HR ', 'cw ', 'qam', 'DT ', 'iv', 'BP', 'qpm', 'sR ', 'pr', 'PO', 'do', 'CT', 'RK', 'TF', 'ea ', 'ps', 'YO', 'ED ', 'MPH', 'Po', 'IR ', 'VAC', 'NE', 'fu ', 'ed', 'ta ', 'dc ', 'yo M ', 'RT', 'ID', 'sp ', 'sl ', 'qs ', 'gi', 'qhs', 'poqid', 'pobid', 'MS', 'dA ', 'Ho ', 'ST ', 'ot', 'ac', 'np', 'tA ', 'pe', 'tl', 'or', 'wo ', 'PRN', 'IV ', 'sP', 'IJ', 'IR', 'PS', 'nt ', 'cp', 'to ', 'Uo', 'BID', 'UO', 'pm ', 'NP', 'FR', 'ns', 'bid', 'IS ', 'NT ', 'po', 'sA', 'ie ', 'NC', 'ed ', 'RR', 'yo', 'IE', 'sD ', 'PA', 'bid ', 'OR ', 'qhsprn', 'PC', 'sp', 'scbid', 'SO', 'yA ', 'qidprn', 'tA', 'OT', 'ss', 'ci', 'CO', 'poqhsprn', 'BM', 'us', 'TM', 'po ', 'RD', 'NH', 'yom ', 'nA ', 'iv ', 'AG', 'tD ', 'pg', 'et', 'BID ', 'HR', 'ds ', 'tr ', 'OK', 'DR', 'yoF ', 'rD ', 'NO', 'is', 'nc', 'Am ', 'ok', 'sr ', 'PS ', 'IP', 'ED', 'id', 'GI', 'hs', 'OR', 'NPN', 'HD', 'POD', 'nc', 'PM ', 'PO ', 'sK ', 'SR ', 'ho', 'RI', 'poq', 'eA', 'CI', 'rt', 'ID ', 'RO ', 'DM', 'GU', 'co ', 'qod', 'IO ', 'RO', 'EG', 'ct', 'ci ', 'hD', 'am ', 'HL', 'ew', 'EC', 'TO', 'ss ', 'SC ', 'UO ', 'potid', 'er ', 'gu', 'iu', 'RNs ', 'SW', 'do', 'RN', 'DR ', 'CI ', 'MI', 'BP ', 'am', 'os', 'EL ', 'eL ', 'nc ', 'QS', 'ros', 'ed', 'HO', 'AM ', 'pt', 'do ', 'yo ', 'ET ', 'IV', 'hprn', 'tK ', 'PE', 'US ', 'TD', 'iv', 'sL ', 'co', 'SC', 'CO ', 'TO ', 'oC ', 'lA ', 'SL', 'pa', 'ivq', 'tA', 'FB', 'tid', 'DL ', 'DIC', 'cl', 'CL', 'AM', 'od', 'ROS', 'po', 'SP ', 'JP', 'BS', 'dR ', 'so', 'poqam', 'CARE ', 'ir', 'qid', 'Am', 'yo F ', 'BO', 'BID', 'DL', 'sc', 'SO ', 'SS', 'vs', 'poqhs', 'AM']
+
+def _batch_clean(note_text,num,start):
+    start = int(start)
+    local_seg = note_text[start:min(len(note_text),start+num)]
+    local_clean_list = []
+    for text in tqdm(local_seg):
+        text = re.sub(r'\s*\[.*?\]\s*',' ',text)
+        if re.search(r'[a-zA-Z]\.[a-zA-Z]',text):
+            for i in range(len(abb_list)):
+                text = re.sub(abb_list[i],nopoint_abb_list[i],text)
+        text = re.sub(r'\n',' ',text)
+        text = re.sub(r' :',':',text)
+        #text = re.sub(r':\w',': ',text)
+        text = re.sub(r'\s+',' ',text)
+        local_clean_list.append(text)
+    return local_clean_list
+    
+def clean_Abb(p_num,note_text):
+    num = int(len(note_text)/p_num)
+    p = Pool(processes = p_num)
+    whole_clean_list = []
+    func = partial(_batch_clean,note_text,num)
+    clean_lists = p.map(func,range(0,len(note_text),num))
+    p.close()  
+    for lll in clean_lists:
+        whole_clean_list.extend(lll)
+    return whole_clean_list
+    
+def merge_20_cleanAbb(src_path):
+    merge_to = 20
+    src_text = pickle.load(open(src_path,'rb'))
+    merged_text = []
+    for text in src_text:
+        tmp_doc = []
+        buffer = ''
+        cur_len = 0
+        for line in text:
+            line = re.sub(r'\n',' ',line)
+            buffer = buffer + line+' ' 
+            cur_len = cur_len + len(line.split())
+            if cur_len>=merge_to:
+                if re.search(r'[a-zA-Z]\.[a-zA-Z]',buffer):
+                    for i in range(len(abb_list)):
+                        buffer = re.sub(abb_list[i],nopoint_abb_list[i],buffer)
+                tmp_doc.append(buffer)
+                buffer = ''
+                cur_len = 0
+        if cur_len>0:
+            tmp_doc.append(buffer)
+        merged_text.append(tmp_doc)
+    filename = src_path[:-4]
+    des_path = filename[:-1] + '_merged.pkl'
+    pickle.dump(merged_text,open(des_path,'wb'))
+    return merged_text
