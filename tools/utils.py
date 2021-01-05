@@ -49,37 +49,6 @@ class DocDataset_with_index(Dataset):
         y = self.labels[index]
         return X,y,index
 '''        
-def load_data(ratio=2,clarity=False,stratify = True,shuffle_train = True,corr_label=True):
-    src_dir = 'pu_data_ratio' + str(ratio) + '/'
-    if clarity:
-        src_dir = 'pu_data_ratio_Clarity' + str(ratio) + '/'
-    if stratify:
-        text_train = pickle.load(open(src_dir+'text_train_stratified.pkl','rb'))
-        label_train = pickle.load(open(src_dir+'label_train_stratified.pkl','rb'))
-        text_test = pickle.load(open(src_dir+'text_test_stratified.pkl','rb'))
-        if corr_label and os.path.exists(src_dir+'corrected_label_test_stratify.pkl'):
-            label_test = pickle.load(open(src_dir+'corrected_label_test_stratify.pkl','rb'))
-        else:
-            label_test = pickle.load(open(src_dir+'label_test_stratified.pkl','rb'))
-    else:
-        text_train = pickle.load(open(src_dir+'text_train.pkl','rb'))
-        label_train = pickle.load(open(src_dir+'label_train.pkl','rb'))
-        text_test = pickle.load(open(src_dir+'text_test.pkl','rb'))
-        label_test = pickle.load(open(src_dir+'label_test.pkl','rb'))
-    params_sent = {'batch_size': 1,
-            'shuffle': shuffle_train,
-            'num_workers': 6}
-    params_sent_validation = {'batch_size': 1,
-            'shuffle': False,
-            'num_workers': 6}
-    training_set = DocDataset(text_train, label_train)
-    training_generator = DataLoader(training_set, **params_sent)
-    validation_set = DocDataset(text_test, label_test)
-    validation_generator =DataLoader(validation_set, **params_sent_validation)
-    dummy_set = DocDataset(text_train[:5], label_train[:5])
-    dummy_generator = DataLoader(dummy_set, **params_sent)
-    return training_generator,validation_generator,dummy_generator
-# Convert splited sentence to documents. 
 
 def load_data_new(shuffle_train = True,corr_label=True,merged=True):
     src_dir = '../preprocessing/result/ratio2/'
@@ -97,8 +66,6 @@ def load_data_new(shuffle_train = True,corr_label=True,merged=True):
     else:
         label_test = pickle.load(open(src_dir+'label_test.pkl','rb'))
         label_train = pickle.load(open(src_dir+'label_train.pkl','rb'))
-    
-        
     params_sent = {'batch_size': 1,
         'shuffle': shuffle_train,
         'num_workers': 6}
@@ -131,6 +98,37 @@ def load_data_for_correction():
     all_generator =DataLoader(all_set, **params_all)
     return all_generator
     
+import pandas as pd
+from ast import literal_eval
+def str2list(pd_series):
+    new_list = []
+    for text in pd_series:
+        new_list.append(literal_eval(text))
+    return new_list
+    
+def load_df_data(src_path,shuffle_train = True,whole_test=False):
+    df = pd.read_csv(src_path)
+    params_sent = {'batch_size': 1,
+        'shuffle': shuffle_train,
+        'num_workers': 6}
+    params_sent_validation = {'batch_size': 1,
+            'shuffle': False,
+            'num_workers': 6}
+    if not whole_test:
+        train_df = df[df.split == 'train']
+        test_df = df[df.split == 'test']
+    else:
+        test_df = train_df = df
+    #import pdb; pdb.set_trace()
+    train_text = str2list(train_df.seg_text)
+    test_text = str2list(test_df.seg_text)
+    training_set = DocDataset(train_text,list(train_df.pu_label))
+    training_generator = DataLoader(training_set,**params_sent)
+    validation_set = DocDataset(test_text,list(test_df.pu_label))
+    validation_generator = DataLoader(validation_set,**params_sent_validation)
+    #import pdb; pdb.set_trace()
+    return training_generator,validation_generator
+    
 def load_review_data(select_index,corr_label=True):
     src_dir = '../preprocessing/result/ratio2/'
     text_test = pickle.load(open(src_dir+'text_test.pkl','rb'))
@@ -151,25 +149,6 @@ def load_review_data(select_index,corr_label=True):
     validation_generator =DataLoader(validation_set, **params_sent_validation)
     return validation_generator
 
-def load_raw_data(ratio=2,clarity=False,stratify = True,corr_label=True):
-    src_dir = 'pu_data_ratio' + str(ratio) + '/'
-    if clarity:
-        src_dir = 'pu_data_ratio_Clarity' + str(ratio) + '/'
-    if stratify:
-        text_train = pickle.load(open(src_dir+'text_train_stratified.pkl','rb'))
-        label_train = pickle.load(open(src_dir+'label_train_stratified.pkl','rb'))
-        text_test = pickle.load(open(src_dir+'text_test_stratified.pkl','rb'))
-        if corr_label and os.path.exists(src_dir+'corrected_label_test_stratify.pkl'):
-            label_test = pickle.load(open(src_dir+'corrected_label_test_stratify.pkl','rb'))
-        else:
-            label_test = pickle.load(open(src_dir+'label_test_stratified.pkl','rb'))
-    else:
-        text_train = pickle.load(open(src_dir+'text_train.pkl','rb'))
-        label_train = pickle.load(open(src_dir+'label_train.pkl','rb'))
-        text_test = pickle.load(open(src_dir+'text_test.pkl','rb'))
-        label_test = pickle.load(open(src_dir+'label_test.pkl','rb'))
-    return text_train,label_train,text_test,label_test
-
 def load_raw_data_new(corr_label=True):
     src_dir = '../preprocessing/result/ratio2/'
     text_train = pickle.load(open(src_dir+'text_train.pkl','rb'))
@@ -181,7 +160,7 @@ def load_raw_data_new(corr_label=True):
         label_test = pickle.load(open(src_dir+'label_test.pkl','rb'))
         label_train = pickle.load(open(src_dir+'label_train.pkl','rb'))
     return text_train,label_train,text_test,label_test
-    
+   
 def back_to_doc(doc_list):
     new_doc_list = []
     for doc in doc_list:
@@ -190,7 +169,7 @@ def back_to_doc(doc_list):
             new_doc_list[-1]+=' ' + str(sent)
     return new_doc_list
     
-def cancat_to_20(sent_list):
+def concat_to_20(sent_list):
     extended_sent_list = []
     sent_index = 0
     while sent_index < len(sent_list):
@@ -902,30 +881,3 @@ def clean_Abb(p_num,note_text):
     for lll in clean_lists:
         whole_clean_list.extend(lll)
     return whole_clean_list
-    
-def merge_20_cleanAbb(src_path):
-    merge_to = 20
-    src_text = pickle.load(open(src_path,'rb'))
-    merged_text = []
-    for text in src_text:
-        tmp_doc = []
-        buffer = ''
-        cur_len = 0
-        for line in text:
-            line = re.sub(r'\n',' ',line)
-            buffer = buffer + line+' ' 
-            cur_len = cur_len + len(line.split())
-            if cur_len>=merge_to:
-                if re.search(r'[a-zA-Z]\.[a-zA-Z]',buffer):
-                    for i in range(len(abb_list)):
-                        buffer = re.sub(abb_list[i],nopoint_abb_list[i],buffer)
-                tmp_doc.append(buffer)
-                buffer = ''
-                cur_len = 0
-        if cur_len>0:
-            tmp_doc.append(buffer)
-        merged_text.append(tmp_doc)
-    filename = src_path[:-4]
-    des_path = filename[:-1] + '_merged.pkl'
-    pickle.dump(merged_text,open(des_path,'wb'))
-    return merged_text

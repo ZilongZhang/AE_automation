@@ -29,13 +29,12 @@ hpara1.word_lr = 1e-04 #5e-05
 hpara1.sent_lr = 8e-04 #2e-04
 hpara1.decay_step = 10
 hpara1.decay_gamma = 0.5
-hpara1.max_sent_len = 128
+hpara1.max_sent_len = 100
 hpara1.fix_cls = True
 hpara1.head_num = 12
 hpara1.att_decay_step=3
 hpara1.att_decay_rate=0.5
-hpara1.max_doc_len = 300
-
+hpara1.max_doc_len = 256
 hpara1.use_SSI_Bert = False
 hpara1.use_narrow = False
 
@@ -43,14 +42,14 @@ pretrain_model_dir = '../BERT/pretrained_bert_tf/biobert_pretrain_output_all_not
 vocab_file = os.path.join(pretrain_model_dir,'vocab.txt')
 bert_config_file = os.path.join(pretrain_model_dir,'bert_config.json')
 print(bert_config_file)
-training_generator,validation_generator,dummy_generator = utils.load_data_new()
+src_path = '../preprocessing/result/pu_chart/day3_data.csv'
+training_generator,validation_generator = utils.load_df_data(src_path)
+#import pdb; pdb.set_trace()
 tokenizer = utils._load_tf_tokenizer(vocab_file = vocab_file)
-
 config = modeling_bert.BertConfig.from_json_file(bert_config_file)
 config.num_hidden_layers = hpara1.word_layers
 config.output_attentions = True
 model_word = modeling_bert.BertModel(config)
-
 import re
 model_state_dict = pretrain_model_dir + '/pytorch_model.bin'
 pretrained_dict = torch.load(model_state_dict)
@@ -66,7 +65,6 @@ for k in pretrained_dict.keys():
 model_dict.update(matched_dict)
 model_word.load_state_dict(model_dict)
 cls_weight = model_word.state_dict()['embeddings.word_embeddings.weight'][101]
-
 
 config_doc = modeling_bert.BertConfig.from_json_file(bert_config_file)
 config_doc.num_hidden_layers = hpara1.sent_layers
